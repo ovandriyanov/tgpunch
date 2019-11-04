@@ -1,11 +1,13 @@
 package stun
 
 import (
-	"net"
-	"fmt"
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"math/rand"
+	"time"
+	"net"
 )
 
 const (
@@ -14,6 +16,8 @@ const (
 	familyIpv4              = 0x01
 	familyIpv6              = 0x02
 )
+
+var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 func makeBindingRequest() []byte {
 	var buffer [stunHeaderLen]byte
@@ -38,9 +42,8 @@ func makeBindingRequest() []byte {
 	// Put magic cookie
 	binary.BigEndian.PutUint32(buffer[4:], magicCookie)
 
-	// Transaction ID is hardcoded for now
-	// TODO: generate randomly
-	copy(buffer[8:], []byte("Hello, world"))
+	// Generate transaction ID
+	rng.Read(buffer[8:])
 
 	return buffer[:]
 }
@@ -71,8 +74,8 @@ func xorSlice(lhs []byte, rhs []byte) []byte {
 	return result
 }
 
-func extractAddressFromBindingResponse(response []byte) (*net.UDPAddr, error) {
-	// Example of server response:
+func extractAddressFromBindingResponse(response []byte, expectedTransactionId []byte) (*net.UDPAddr, error) {
+	// Example of server response for transaction ID "Hello, world":
 	// 00000000  01 01 00 4c 21 12 a4 42  48 65 6c 6c 6f 2c 20 77  |...L!..BHello, w|
 	// 00000010  6f 72 6c 64 00 04 00 08  00 01 0d 96 6d 47 68 49  |orld........mGhI|
 	// 00000020  00 05 00 08 00 01 0d 97  6d 47 68 4c 00 20 00 08  |........mGhL. ..|
@@ -104,10 +107,7 @@ func extractAddressFromBindingResponse(response []byte) (*net.UDPAddr, error) {
 		return nil, errors.New("Trailing data")
 	}
 
-	// TODO: receive session ID as an argument
-	var transactionId [12]byte
-	copy(transactionId[:], response[8:20])
-	if bytes.Compare(transactionId[:], []byte("Hello, world")) != 0 {
+	if bytes.Compare(response[8:20], expectedTransactionId) != 0 {
 		return nil, errors.New("Transaction ID mismatch")
 	}
 
@@ -186,19 +186,20 @@ func extractAddressFromBindingResponse(response []byte) (*net.UDPAddr, error) {
 	return address, nil
 }
 
-func SendBindingRequest(conn *net.UDPConn, serverAddress *net.UDPAddr) (int, error) {
+// Returns transaction ID + error
+func SendBindingRequest(conn *net.UDPConn, serverAddress *net.UDPAddr) ([]byte, error) {
 	request := makeBindingRequest()
 	nwritten, err := conn.WriteToUDP(request, serverAddress)
 	if err != nil {
-		return nwritten, err
+		return []byte{}, err
 	}
 	if nwritten != len(request) {
-		return nwritten, errors.New("Outbound datagram truncated")
+		return []byte{}, errors.New("Outbound datagram truncated")
 	}
-	return nwritten, nil
+	return request[8:], nil
 }
 
-func ReceiveBindingResponse(conn *net.UDPConn, serverAddress *net.UDPAddr) (*net.UDPAddr, error) {
+func ReceiveBindingResponse(conn *net.UDPConn, serverAddress *net.UDPAddr, transactionId []byte) (*net.UDPAddr, error) {
 	var buffer [4096]byte
 	var nread int
 	for {
@@ -217,14 +218,14 @@ func ReceiveBindingResponse(conn *net.UDPConn, serverAddress *net.UDPAddr) (*net
 		return nil, errors.New("A packet from server is too large")
 	}
 
-	return extractAddressFromBindingResponse(buffer[:nread])
+	return extractAddressFromBindingResponse(buffer[:nread], transactionId)
 }
 
 func GetReflexiveAddress(conn *net.UDPConn, serverAddress *net.UDPAddr) (*net.UDPAddr, error) {
-	_, err := SendBindingRequest(conn, serverAddress)
+	transactionId, err := SendBindingRequest(conn, serverAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	return ReceiveBindingResponse(conn, serverAddress)
+	return ReceiveBindingResponse(conn, serverAddress, transactionId)
 }
