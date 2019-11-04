@@ -232,3 +232,90 @@ func GetMyPublicEndpoint(conn *net.UDPConn, config *Config) (Endpoint, error) {
 		}
 	}
 }
+
+func sendEchoRequest(conn *net.UDPConn, peerEndpoint *net.UDPAddr, payload []byte) error {
+	var buffer [1024]byte
+	copy(buffer[:], "req")
+	copy(buffer[3:], payload)
+
+	return sendMessage(conn, peerEndpoint, buffer[:3 + len(payload)])
+}
+
+func sendEchoReply(conn *net.UDPConn, peerEndpoint *net.UDPAddr, payload []byte) error {
+	var buffer [1024]byte
+	copy(buffer[:], "rsp")
+	copy(buffer[3:], payload)
+
+	return sendMessage(conn, peerEndpoint, buffer[:3 + len(payload)])
+}
+
+func sendMessage(conn *net.UDPConn, peerEndpoint *net.UDPAddr, message []byte) error {
+	fmt.Printf("Sending %q to %v\n", message, *peerEndpoint)
+	nwritten, err := conn.WriteToUDP(message, peerEndpoint)
+	if err != nil {
+		return err
+	}
+	if nwritten != len(message) {
+		return errors.New("Outbound datagram truncated")
+	}
+	return nil
+}
+
+func PunchHole(conn *net.UDPConn, peerEndpoint *net.UDPAddr, myMagic []byte) error {
+	sendEchoRequest(conn, peerEndpoint, myMagic)
+
+	okChan := make(chan int)
+	errChan := make(chan error)
+	retryChan := time.After(500 * time.Millisecond)
+
+	go func() {
+		var buffer [1024]byte
+
+		for {
+			nread, addr, err := conn.ReadFromUDP(buffer[:])
+			if err != nil {
+				errChan <-err
+				return
+			}
+			fmt.Printf("Received %q from %v\n", buffer[:nread], *addr)
+			if addr.String() != peerEndpoint.String() {
+				continue
+			}
+			if bytes.Compare(buffer[:nread], myMagic) != 0 {
+				continue
+			}
+
+			okChan <-0
+			return
+		}
+	}()
+
+	retries := 0
+	maxRetries := 10
+
+	for {
+		select {
+		case <-okChan:
+			return nil
+
+		case err := <-errChan:
+			return err
+
+		case <-retryChan:
+			if retries == maxRetries {
+				return errors.New(fmt.Sprintf("Timeout after %d retries", retries))
+			}
+			retries++
+
+			fmt.Printf("Sending %q to %v\n", myMagic, *peerEndpoint)
+			nwritten, err := conn.WriteToUDP(myMagic, peerEndpoint)
+			if err != nil {
+				return err
+			}
+			if nwritten != len(myMagic) {
+				return errors.New("Outbound datagram truncated")
+			}
+			retryChan = time.After(500 * time.Millisecond)
+		}
+	}
+}

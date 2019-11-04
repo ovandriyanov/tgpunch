@@ -97,6 +97,17 @@ func main() {
 			}
 
 			fmt.Printf("Remote public endpoint is %v\n", *msg.PublicEndpoint)
+
+			remoteAddr := net.UDPAddr{
+				IP: net.ParseIP(msg.PublicEndpoint.Address),
+				Port: msg.PublicEndpoint.Port,
+			}
+
+			err = common.PunchHole(conn, &remoteAddr, []byte("client"), []byte("client"))
+			if err != nil {
+				common.Fatal(err.Error())
+			}
+
 			os.Exit(0)
 		}
 

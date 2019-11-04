@@ -73,6 +73,16 @@ func handleStartPunchingRequest(client *http.Client, config *common.Config, clie
 		return errors.New(common.ApiErrorDescription(apiResponse.Description))
 	}
 
+	remoteAddr := net.UDPAddr{
+		IP: net.ParseIP(clientEndpoint.Address),
+		Port: clientEndpoint.Port,
+	}
+
+	err = common.PunchHole(conn, &remoteAddr, []byte("server"), []byte("server"))
+	if err != nil {
+		common.Fatal(err.Error())
+	}
+
 	return nil
 }
 
