@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
     "bytes"
     "errors"
     "fmt"
@@ -24,7 +25,7 @@ type Config struct {
 
 type HubMessage struct {
 	Type string `json:"type"`
-	Serial int64 `json:"serial"`
+	Serial uint64 `json:"serial"`
 	PublicEndpoint *Endpoint `json:"public_endpoint"`
 }
 
@@ -185,20 +186,56 @@ func GetUpdates(client *http.Client, config *Config, offset int) ([]tgapi.Update
 }
 
 func GetMyPublicEndpoint(config *Config) (Endpoint, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("0.0.0.0"), Port: 9999})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
 	if err != nil {
 		return Endpoint{}, err
 	}
 	defer conn.Close()
 
-	address, err := stun.GetReflexiveAddress(conn, &net.UDPAddr{IP: net.ParseIP("109.71.104.73"), Port: 3478})
+	serverAddress := net.UDPAddr{IP: net.ParseIP("109.71.104.73"), Port: 3478}
+	transactionId, err := stun.SendBindingRequest(conn, &serverAddress)
 	if err != nil {
 		return Endpoint{}, err
 	}
 
-	return Endpoint{
-		Address: address.IP.String(),
-		Port: address.Port,
-	}, nil
-}
+	addrChan := make(chan *net.UDPAddr)
+	errChan := make(chan error)
+	retryChan := time.After(1 * time.Second)
 
+	go func() {
+		address, err := stun.ReceiveBindingResponse(conn, &serverAddress, transactionId)
+		if err != nil {
+			errChan <-err
+			return
+		}
+		addrChan <-address
+	}()
+
+	retries := 0
+	maxRetries := 4
+	for {
+		select {
+		case addr := <-addrChan:
+			return Endpoint{
+				Address: addr.IP.String(),
+				Port: addr.Port,
+			}, nil
+
+		case err := <-errChan:
+			return Endpoint{}, err
+
+		case <-retryChan:
+			if retries == maxRetries {
+				return Endpoint{}, errors.New(fmt.Sprintf("No response from server after %d retries", retries))
+			}
+
+			retries++
+			_, err := stun.SendBindingRequest(conn, &serverAddress)
+			if err != nil {
+				return Endpoint{}, err
+			}
+			retryChan = time.After(1 * time.Second)
+		}
+	}
+
+}
