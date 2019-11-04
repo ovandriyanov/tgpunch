@@ -23,11 +23,12 @@ func handleHubMessage(client *http.Client, config *common.Config, msg *common.Hu
 	return nil
 }
 
-func handleStartPunchingRequest(client *http.Client, config *common.Config, clientEndpoint *common.Endpoint, serial int64) error {
+func handleStartPunchingRequest(client *http.Client, config *common.Config, clientEndpoint *common.Endpoint, serial uint64) error {
 	myEndpoint, err := common.GetMyPublicEndpoint(config)
 	if err != nil {
 		return err
 	}
+	fmt.Printf("My public endpoint is %v\n", myEndpoint)
 
 	// Send the message with our public endpoint to the hub
 
