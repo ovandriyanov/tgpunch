@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
     "fmt"
+    "net"
     "os"
 )
 
@@ -19,7 +20,13 @@ func main() {
         common.Fatal("Cannot parse command line: " + err.Error())
     }
 
-	myEndpoint, err := common.GetMyPublicEndpoint(config)
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+	if err != nil {
+		common.Fatal("Cannot create UDP socket: " + err.Error())
+	}
+	defer conn.Close()
+
+	myEndpoint, err := common.GetMyPublicEndpoint(conn, config)
 	if err != nil {
 		common.Fatal("Cannot get my public endpoint: " + err.Error())
 	}

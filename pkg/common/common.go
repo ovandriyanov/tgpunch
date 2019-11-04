@@ -185,13 +185,7 @@ func GetUpdates(client *http.Client, config *Config, offset int) ([]tgapi.Update
 	return apiResponse.Result, nil
 }
 
-func GetMyPublicEndpoint(config *Config) (Endpoint, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
-	if err != nil {
-		return Endpoint{}, err
-	}
-	defer conn.Close()
-
+func GetMyPublicEndpoint(conn *net.UDPConn, config *Config) (Endpoint, error) {
 	serverAddress := net.UDPAddr{IP: net.ParseIP("109.71.104.73"), Port: 3478}
 	transactionId, err := stun.SendBindingRequest(conn, &serverAddress)
 	if err != nil {
@@ -237,5 +231,4 @@ func GetMyPublicEndpoint(config *Config) (Endpoint, error) {
 			retryChan = time.After(1 * time.Second)
 		}
 	}
-
 }

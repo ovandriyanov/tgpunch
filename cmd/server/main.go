@@ -9,6 +9,7 @@ import (
     "fmt"
     "os"
     "strings"
+    "net"
 )
 
 func handleHubMessage(client *http.Client, config *common.Config, msg *common.HubMessage) error {
@@ -24,7 +25,13 @@ func handleHubMessage(client *http.Client, config *common.Config, msg *common.Hu
 }
 
 func handleStartPunchingRequest(client *http.Client, config *common.Config, clientEndpoint *common.Endpoint, serial uint64) error {
-	myEndpoint, err := common.GetMyPublicEndpoint(config)
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("0.0.0.0"), Port: 0})
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	myEndpoint, err := common.GetMyPublicEndpoint(conn, config)
 	if err != nil {
 		return err
 	}
