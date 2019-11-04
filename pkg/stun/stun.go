@@ -186,16 +186,19 @@ func extractAddressFromBindingResponse(response []byte) (*net.UDPAddr, error) {
 	return address, nil
 }
 
-func GetReflexiveAddress(conn *net.UDPConn, serverAddress *net.UDPAddr) (*net.UDPAddr, error) {
+func SendBindingRequest(conn *net.UDPConn, serverAddress *net.UDPAddr) (int, error) {
 	request := makeBindingRequest()
 	nwritten, err := conn.WriteToUDP(request, serverAddress)
 	if err != nil {
-		return nil, err
+		return nwritten, err
 	}
 	if nwritten != len(request) {
-		return nil, errors.New("Outbound datagram truncated")
+		return nwritten, errors.New("Outbound datagram truncated")
 	}
+	return nwritten, nil
+}
 
+func ReceiveBindingResponse(conn *net.UDPConn, serverAddress *net.UDPAddr) (*net.UDPAddr, error) {
 	var buffer [4096]byte
 	var nread int
 	for {
@@ -215,4 +218,13 @@ func GetReflexiveAddress(conn *net.UDPConn, serverAddress *net.UDPAddr) (*net.UD
 	}
 
 	return extractAddressFromBindingResponse(buffer[:nread])
+}
+
+func GetReflexiveAddress(conn *net.UDPConn, serverAddress *net.UDPAddr) (*net.UDPAddr, error) {
+	_, err := SendBindingRequest(conn, serverAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	return ReceiveBindingResponse(conn, serverAddress)
 }
